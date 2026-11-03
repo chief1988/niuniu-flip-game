@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>牛牛翻翻乐</title>
+<style>
+  :root{
+    --bg:#1c2530; --panel:#243140; --accent:#ffd166; --accent2:#ff8c42;
+    --text:#f4f1e8; --muted:#9fb0c0; --ok:#2ecc71;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; min-height:100vh; font-family:"PingFang SC","Microsoft YaHei",sans-serif;
+    background:radial-gradient(1200px 600px at 50% -10%, #2a3a4d 0%, var(--bg) 60%);
+    color:var(--text); display:flex; flex-direction:column; align-items:center;
+    padding:24px 12px 48px;
+  }
+  h1{
+    margin:4px 0 2px; font-size:30px; letter-spacing:2px;
+    background:linear-gradient(90deg,var(--accent),var(--accent2));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .sub{color:var(--muted); font-size:13px; margin-bottom:14px;}
+  .hud{
+    display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-bottom:16px;
+  }
+  .chip{
+    background:var(--panel); border:1px solid #33455a; border-radius:999px;
+    padding:8px 16px; font-size:14px; min-width:84px; text-align:center;
+  }
+  .chip b{color:var(--accent); font-size:18px; display:block; margin-top:2px;}
+  .board{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:12px;
+    width:min(92vw,440px); aspect-ratio:1/1;
+  }
+  .card{
+    perspective:800px; cursor:pointer; border:0; background:transparent; padding:0;
+  }
+  .inner{
+    position:relative; width:100%; height:100%; transition:transform .5s cubic-bezier(.2,.8,.3,1);
+    transform-style:preserve-3d;
+  }
+  .card.flipped .inner, .card.matched .inner{ transform:rotateY(180deg); }
+  .face{
+    position:absolute; inset:0; border-radius:14px; overflow:hidden;
+    backface-visibility:hidden; display:flex; align-items:center; justify-content:center;
+    border:2px solid #3a4d63;
+  }
+  .back{ background:#0f1822; }
+  .back img{ width:100%; height:100%; object-fit:cover; }
+  .front{ transform:rotateY(180deg); background:#fff; }
+  .front img{ width:100%; height:100%; object-fit:cover; }
+  .front .badge{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:34px;
+  }
+  .card.matched .inner{ box-shadow:0 0 0 3px var(--ok), 0 0 18px rgba(46,204,113,.5); }
+  .card.matched{ animation:pop .4s ease; }
+  @keyframes pop{ 0%{transform:scale(1)} 50%{transform:scale(1.06)} 100%{transform:scale(1)} }
+  .controls{ margin-top:18px; display:flex; gap:12px; }
+  button.btn{
+    background:linear-gradient(90deg,var(--accent),var(--accent2)); color:#241a08;
+    border:0; border-radius:999px; padding:11px 26px; font-size:15px; font-weight:700;
+    cursor:pointer; transition:transform .1s;
+  }
+  button.btn:active{ transform:scale(.96); }
+  .overlay{
+    position:fixed; inset:0; background:rgba(8,12,18,.82); backdrop-filter:blur(4px);
+    display:none; align-items:center; justify-content:center; z-index:10;
+  }
+  .overlay.show{ display:flex; }
+  .win{
+    background:var(--panel); border:1px solid #3a4d63; border-radius:18px;
+    padding:30px 34px; text-align:center; max-width:88vw; box-shadow:0 20px 60px rgba(0,0,0,.5);
+  }
+  .win h2{ margin:0 0 8px; color:var(--accent); font-size:26px; }
+  .win p{ color:var(--muted); margin:6px 0; }
+  .win .big{ color:var(--ok); font-size:20px; font-weight:700; }
+</style>
+</head>
+<body>
+  <h1>🐮 牛牛翻翻乐</h1>
+  <div class="sub">翻开牌找相同图案的「牛牛」，全部配对就赢啦！</div>
+
+  <div class="hud">
+    <div class="chip">步数<b id="moves">0</b></div>
+    <div class="chip">时间<b id="time">00:00</b></div>
+    <div class="chip">配对<b id="pairs">0/8</b></div>
+  </div>
+
+  <div class="board" id="board"></div>
+
+  <div class="controls">
+    <button class="btn" id="restart">重新开始</button>
+  </div>
+
+  <div class="overlay" id="overlay">
+    <div class="win">
+      <h2>🎉 全部配对成功！</h2>
+      <p>你用了 <span class="big" id="finalMoves">0</span> 步，耗时 <span class="big" id="finalTime">00:00</span></p>
+      <p id="rank"></p>
+      <button class="btn" id="again">再玩一次</button>
+    </div>
+  </div>
+
+<script>
+const FRONT = "正面.jpg";
+const BACK  = "背面.jpg";
+const SYMBOLS = ["🌟","🌈","🍎","🌸","⚽","🎈","🐱","🌙"];
+
+const boardEl = document.getElementById("board");
+const movesEl = document.getElementById("moves");
+const timeEl  = document.getElementById("time");
+const pairsEl = document.getElementById("pairs");
+const overlay = document.getElementById("overlay");
+
+let deck = [], first = null, lock = false, moves = 0, matched = 0;
+let timer = null, seconds = 0, started = false;
+
+function shuffle(a){
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
+
+function buildDeck(){
+  const items = shuffle([...SYMBOLS, ...SYMBOLS]);
+  deck = items.map((sym, i) => ({ sym, id:i }));
+}
+
+function render(){
+  boardEl.innerHTML = "";
+  deck.forEach((card, idx) => {
+    const btn = document.createElement("button");
+    btn.className = "card";
+    btn.dataset.idx = idx;
+    btn.innerHTML = `
+      <div class="inner">
+        <div class="face back"><img src="${BACK}" alt="背面"></div>
+        <div class="face front"><img src="${FRONT}" alt="正面"><div class="badge">${card.sym}</div></div>
+      </div>`;
+    btn.addEventListener("click", () => flip(idx, btn));
+    boardEl.appendChild(btn);
+  });
+}
+
+function startTimer(){
+  if(started) return;
+  started = true;
+  timer = setInterval(() => {
+    seconds++;
+    const m = String(Math.floor(seconds/60)).padStart(2,"0");
+    const s = String(seconds%60).padStart(2,"0");
+    timeEl.textContent = `${m}:${s}`;
+  }, 1000);
+}
+
+function flip(idx, btn){
+  if(lock) return;
+  if(btn.classList.contains("flipped") || btn.classList.contains("matched")) return;
+  startTimer();
+  btn.classList.add("flipped");
+
+  if(!first){
+    first = { idx, btn };
+    return;
+  }
+
+  moves++;
+  movesEl.textContent = moves;
+  const a = first, b = { idx, btn };
+  if(deck[a.idx].sym === deck[b.idx].sym){
+    a.btn.classList.add("matched");
+    b.btn.classList.add("matched");
+    matched++;
+    pairsEl.textContent = `${matched}/8`;
+    first = null;
+    if(matched === SYMBOLS.length){
+      clearInterval(timer);
+      setTimeout(win, 450);
+    }
+  }else{
+    lock = true;
+    setTimeout(() => {
+      a.btn.classList.remove("flipped");
+      b.btn.classList.remove("flipped");
+      first = null;
+      lock = false;
+    }, 750);
+  }
+}
+
+function win(){
+  document.getElementById("finalMoves").textContent = moves;
+  document.getElementById("finalTime").textContent = timeEl.textContent;
+  const rank = moves <= 14 ? "神级记忆力！🧠" : moves <= 22 ? "很棒！👍" : "成功通关，继续加油！💪";
+  document.getElementById("rank").textContent = rank;
+  overlay.classList.add("show");
+}
+
+function reset(){
+  clearInterval(timer);
+  moves = 0; matched = 0; seconds = 0; first = null; lock = false; started = false;
+  movesEl.textContent = "0"; timeEl.textContent = "00:00"; pairsEl.textContent = "0/8";
+  overlay.classList.remove("show");
+  buildDeck();
+  render();
+}
+
+document.getElementById("restart").addEventListener("click", reset);
+document.getElementById("again").addEventListener("click", reset);
+reset();
+</script>
+</body>
+</html>

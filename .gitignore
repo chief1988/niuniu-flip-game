@@ -1,0 +1,8 @@
+# WorkBuddy 项目数据，不纳入版本控制
+.workbuddy/
+
+# 系统/编辑器垃圾
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
